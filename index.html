@@ -3763,31 +3763,24 @@ function ftInit(){
 }
 
 function ftConectar(){
-  function try2(){
-    if(!window.firebase){setTimeout(try2,800);return;}
-    try{
-      var app;
-      try{app=firebase.app('ft-app');}catch(e){app=firebase.initializeApp(FT_FIREBASE_CONFIG,'ft-app');}
-      ftS.dbFT=app.firestore();
-      ftS.dbFT.collection(FT_COLLECTION).doc(FT_DOC_ID).onSnapshot(function(doc){
-        if(!doc.exists)return;
-        var data=doc.data();
-        ftS.ftFirestore=data['ft_registros']||[];
-        ftAprenderComHistorico(ftS.ftFirestore);
-        ftRenderLista();ftUpdateStats();
-      },function(e){console.warn('[FT]',e);});
-    }catch(e){console.warn('[FT] init err',e);}
+  // Usa o Realtime Database já inicializado pelo módulo principal (window._db)
+  function conectarComDB(){
+    if(!window._firebaseReady||!window._db){
+      // Firebase ainda não pronto — aguarda evento ou tenta novamente
+      window.addEventListener('firebaseReady',function(){conectarComDB();},{once:true});
+      return;
+    }
+    ftS.dbFT=true; // sinaliza que a conexão está OK
+    // Escuta mudanças na coleção FT em tempo real
+    window._fbOnValue(window._fbRef(window._db,'ft_registros'),function(snap){
+      var data=snap.val();
+      ftS.ftFirestore=data?Object.values(data):[];
+      ftAprenderComHistorico(ftS.ftFirestore);
+      ftRenderLista();ftUpdateStats();
+      console.log('[FT] Conectado ao Realtime Database. Registros:',ftS.ftFirestore.length);
+    },function(e){console.warn('[FT] onValue err',e);});
   }
-  function loadSDK(){
-    var s1=document.createElement('script');
-    s1.src='https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js';
-    s1.onload=function(){
-      var s2=document.createElement('script');
-      s2.src='https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js';
-      s2.onload=try2;document.head.appendChild(s2);
-    };document.head.appendChild(s1);
-  }
-  window.firebase?try2():loadSDK();
+  conectarComDB();
 }
 
 function detectarTurno(ts){
@@ -3851,28 +3844,33 @@ function ftEnviarParaFirestore(ftId){
   var ft=ftS.ftsLocal.find(function(f){return f.id===ftId;});
   if(!ft)return;
   if(!ft.posto||!ft.horario||!ft.motivo||!ft.colaboradorNome){ftModalAbrir(ftId);return;}
-  if(!ftS.dbFT){ftToast('⚠️ Aguarde a conexão com o banco FT...','warn');return;}
+  if(!window._firebaseReady||!window._db){ftToast('⚠️ Firebase não disponível. Salvo localmente.','warn');return;}
   var payload={id:ftUid(),posto:ft.posto,motivo:ft.motivo,horario:ft.horario,substituto:ft.colaboradorNome,
     quemFaltou:null,observacao:ft.observacao||null,valor:parseFloat(ft.valor)||0,
     dataHora:ft.dataHora,criadoEm:new Date().toISOString(),_origem:'ponto-automatico',_pontoId:ft.pontoId||ft.id};
-  ftS.dbFT.collection(FT_COLLECTION).doc(FT_DOC_ID).get().then(function(doc){
-    var ex=(doc.exists&&doc.data()['ft_registros'])||[];
-    ex.push(payload);
-    return ftS.dbFT.collection(FT_COLLECTION).doc(FT_DOC_ID).set({ft_registros:ex},{merge:true});
-  }).then(function(){
-    ftS.ftsLocal=ftS.ftsLocal.map(function(f){return f.id===ftId?Object.assign({},f,{status:'enviada',enviadoEm:new Date().toISOString()}):f;});
-    ftSalvarLocal();ftRenderLista();ftUpdateStats();ftToast('✅ FT enviada!','success');
-  }).catch(function(e){console.error(e);ftToast('❌ Erro ao enviar FT.','error');});
+  // Salva em ft_registros/<id> no Realtime Database
+  window._fbSet(window._fbRef(window._db,'ft_registros/'+payload.id),payload)
+    .then(function(){
+      ftS.ftsLocal=ftS.ftsLocal.map(function(f){return f.id===ftId?Object.assign({},f,{status:'enviada',enviadoEm:new Date().toISOString(),_fbId:payload.id}):f;});
+      ftSalvarLocal();ftRenderLista();ftUpdateStats();ftToast('✅ FT enviada!','success');
+    }).catch(function(e){console.error(e);ftToast('❌ Erro ao enviar FT: '+e.message,'error');});
 }
 
 window.ftSyncFirestore=function(){
-  if(ftS.sync||!ftS.dbFT)return;
+  if(ftS.sync)return;
+  if(!window._firebaseReady||!window._db){ftToast('⚠️ Firebase não disponível.','warn');return;}
   ftS.sync=true;
   var btn=document.getElementById('ft-btn-sync');
   if(btn){btn.textContent='⏳ Sincronizando...';btn.classList.add('syncing');}
-  ftS.dbFT.collection(FT_COLLECTION).doc(FT_DOC_ID).get()
-    .then(function(doc){if(doc.exists){ftS.ftFirestore=doc.data()['ft_registros']||[];ftAprenderComHistorico(ftS.ftFirestore);ftToast('🔄 '+ftS.padroes.length+' padrões aprendidos','success');}})
-    .catch(function(){ftToast('❌ Erro na sincronização.','error');})
+  window._fbGet(window._fbRef(window._db,'ft_registros'))
+    .then(function(snap){
+      var data=snap.val();
+      ftS.ftFirestore=data?Object.values(data):[];
+      ftAprenderComHistorico(ftS.ftFirestore);
+      ftRenderLista();ftUpdateStats();
+      ftToast('🔄 '+ftS.padroes.length+' padrões aprendidos','success');
+    })
+    .catch(function(e){ftToast('❌ Erro na sincronização: '+e.message,'error');})
     .finally(function(){ftS.sync=false;if(btn){btn.textContent='🔄 Sincronizar FT';btn.classList.remove('syncing');}});
 };
 
@@ -3959,17 +3957,24 @@ function ftUid(){return Date.now().toString(36)+Math.random().toString(36).subst
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 window.ftRecuperarDoHistorico=function(){
-  // Acessa os registros do módulo principal (variável global 'registros')
-  var regs=typeof registros!=='undefined'?registros:
-           JSON.parse(localStorage.getItem('ms_registros')||'[]');
-  // Filtra apenas entradas que ainda não têm FT gerada
+  var btn=document.getElementById('ft-btn-recuperar');
+  // Tenta usar a variável global 'registros' (já carregada pelo módulo principal)
+  // Se estiver vazia, lê do localStorage como fallback
+  var regs=(typeof registros!=='undefined'&&registros.length>0)
+    ? registros
+    : JSON.parse(localStorage.getItem('ms_registros')||'[]');
+
+  if(!regs.length){
+    ftToast('⚠️ Nenhum registro de ponto encontrado.','warn');return;
+  }
+  // Filtra apenas entradas sem FT gerada
   var pendentes=regs.filter(function(r){
     return r.tipo==='entrada'&&!ftS.ftsLocal.some(function(f){return f.pontoId===r.id;});
   });
-  if(!pendentes.length){ftToast('✅ Nenhuma FT pendente encontrada no histórico.','success');return;}
-  var btn=document.getElementById('ft-btn-recuperar');
+  if(!pendentes.length){
+    ftToast('✅ Todos os registros já possuem FT gerada.','success');return;
+  }
   if(btn){btn.textContent='⏳ Recuperando...';btn.disabled=true;}
-  var geradas=0;
   pendentes.forEach(function(reg){
     var r=ftBuscarPadrao(reg),pad=r.padrao,turno=r.turnoDetectado;
     var ft={id:ftUid(),pontoId:reg.id,colaboradorId:reg.colaboradorId||'',
@@ -3987,14 +3992,12 @@ window.ftRecuperarDoHistorico=function(){
       autoMotivo:!!(pad&&pad.motivo),
       autoValor:!!(pad&&pad.valorMedio),
       _recuperada:true};
-    ftS.ftsLocal.push(ft);
-    geradas++;
+    ftS.ftsLocal.unshift(ft);
   });
-  // Ordena por data desc para manter consistência com a lista
   ftS.ftsLocal.sort(function(a,b){return new Date(b.dataHora)-new Date(a.dataHora);});
   ftSalvarLocal();ftRenderLista();ftUpdateStats();
   if(btn){btn.textContent='🔍 Recuperar FTs do histórico';btn.disabled=false;}
-  ftToast('📋 '+geradas+' FT(s) recuperada(s) do histórico.',geradas>0?'success':'warn');
+  ftToast('📋 '+pendentes.length+' FT(s) recuperada(s) do histórico.',pendentes.length>0?'success':'warn');
 };
 
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ftInit):ftInit();
