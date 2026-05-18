@@ -3746,7 +3746,14 @@ function exportarHistoricoPDF() {
 </table>
 <div class="rodape">Grupo M.S Segurança e Serviços &nbsp;·&nbsp; Ponto Eletrônico &nbsp;·&nbsp; ${agora}</div>
 
-<scr"+"ipt>
+</body></html>`;
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => { win.focus(); win.print(); }, 400);
+}
+
+
 /* ══ MÓDULO FT AUTOMÁTICA ══ */
 (function(){
 'use strict';
@@ -3895,10 +3902,10 @@ window.ftRenderLista=function(){
     chips.push(ft.valor?'<span class="ft-chip ok">💰 R$ '+parseFloat(ft.valor).toFixed(2).replace('.',',')+'</span>':'<span class="ft-chip warn">💰 Valor pendente</span>');
     var ok=ft.posto&&ft.horario&&ft.motivo&&ft.valor,btns='';
     if(ft.status==='pendente'){
-      btns+='<button class="ft-btn-completar" onclick="ftModalAbrir(''+ft.id+'')">✏️ Completar</button>';
-      if(ok)btns+='<button class="ft-btn-enviar" onclick="ftEnviarParaFirestore(''+ft.id+'')">📤 Enviar FT</button>';
+      btns+='<button class="ft-btn-completar" onclick="ftModalAbrir(\''+ft.id+'\')">✏️ Completar</button>';
+      if(ok)btns+='<button class="ft-btn-enviar" onclick="ftEnviarParaFirestore(\''+ft.id+'\')">📤 Enviar FT</button>';
     }else{btns+='<span class="ft-chip ok" style="padding:8px 14px">✅ Enviada '+(ft.enviadoEm?new Date(ft.enviadoEm).toLocaleDateString('pt-BR'):'')+'</span>';}
-    btns+='<button class="ft-btn-del" onclick="ftDeletar(''+ft.id+'')" title="Remover">🗑</button>';
+    btns+='<button class="ft-btn-del" onclick="ftDeletar(\''+ft.id+'\')" title="Remover">🗑</button>';
     var dt=ft.dataHora?new Date(ft.dataHora).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
     return '<div class="ft-card '+ft.status+'"><div class="ft-card-top"><div><div class="ft-card-nome">'+esc(ft.colaboradorNome)+'</div><div class="ft-card-ts">'+dt+' &nbsp;·&nbsp; 🤖 '+conf+'%</div></div><span class="ft-card-badge '+ft.status+'">'+(ft.status==='pendente'?'⏳ Pendente':'✅ Enviada')+'</span></div>'
       +'<div class="ft-conf-bar"><div class="ft-conf-fill" style="width:'+conf+'%;background:'+cc+'"></div></div>'
@@ -4003,15 +4010,6 @@ window.ftRecuperarDoHistorico=function(){
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ftInit):ftInit();
 window.addEventListener('firebaseReady',function(){if(ftS.dbFT)ftSyncFirestore();});
 })();
-<\/script>
-</body></html>`;
-
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 400);
-}
-
 // ─── EXPORTAR HISTÓRICO EXCEL (CSV) ───────────────────────────────────────────
 function exportarHistoricoExcel() {
   const dados = _filtrados;
