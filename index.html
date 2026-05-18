@@ -2267,6 +2267,7 @@ footer {
         </select>
         <select id="ft-filter-colab" onchange="ftRenderLista()"><option value="">Todos os colaboradores</option></select>
         <button class="ft-btn-sync" onclick="ftSyncFirestore()" id="ft-btn-sync">🔄 Sincronizar FT</button>
+        <button class="ft-btn-sync" onclick="ftRecuperarDoHistorico()" id="ft-btn-recuperar" title="Varre o histórico de ponto e gera FTs para registros que ainda não possuem lançamento">🔍 Recuperar FTs do histórico</button>
       </div>
       <div id="ft-lista-wrap">
         <div class="ft-empty" id="ft-empty-msg">
@@ -3956,6 +3957,45 @@ function ftToast(msg,tipo){
 }
 function ftUid(){return Date.now().toString(36)+Math.random().toString(36).substr(2,6);}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+window.ftRecuperarDoHistorico=function(){
+  // Acessa os registros do módulo principal (variável global 'registros')
+  var regs=typeof registros!=='undefined'?registros:
+           JSON.parse(localStorage.getItem('ms_registros')||'[]');
+  // Filtra apenas entradas que ainda não têm FT gerada
+  var pendentes=regs.filter(function(r){
+    return r.tipo==='entrada'&&!ftS.ftsLocal.some(function(f){return f.pontoId===r.id;});
+  });
+  if(!pendentes.length){ftToast('✅ Nenhuma FT pendente encontrada no histórico.','success');return;}
+  var btn=document.getElementById('ft-btn-recuperar');
+  if(btn){btn.textContent='⏳ Recuperando...';btn.disabled=true;}
+  var geradas=0;
+  pendentes.forEach(function(reg){
+    var r=ftBuscarPadrao(reg),pad=r.padrao,turno=r.turnoDetectado;
+    var ft={id:ftUid(),pontoId:reg.id,colaboradorId:reg.colaboradorId||'',
+      colaboradorNome:reg.colaboradorNome||'',
+      posto:(pad&&pad.posto)||reg.posto||'',
+      horario:(pad&&pad.horario)||(turno?turno.t:''),
+      motivo:(pad&&pad.motivo)||'',
+      valor:(pad&&pad.valorMedio)||0,observacao:'',
+      dataHora:new Date(reg.timestamp).toISOString().slice(0,16),
+      confianca:pad?pad.confianca:0,status:'pendente',
+      criadoEm:new Date().toISOString(),
+      autoNome:!!reg.colaboradorNome,
+      autoPosto:!!(pad&&pad.posto),
+      autoHorario:!!(pad&&pad.horario)||!!turno,
+      autoMotivo:!!(pad&&pad.motivo),
+      autoValor:!!(pad&&pad.valorMedio),
+      _recuperada:true};
+    ftS.ftsLocal.push(ft);
+    geradas++;
+  });
+  // Ordena por data desc para manter consistência com a lista
+  ftS.ftsLocal.sort(function(a,b){return new Date(b.dataHora)-new Date(a.dataHora);});
+  ftSalvarLocal();ftRenderLista();ftUpdateStats();
+  if(btn){btn.textContent='🔍 Recuperar FTs do histórico';btn.disabled=false;}
+  ftToast('📋 '+geradas+' FT(s) recuperada(s) do histórico.',geradas>0?'success':'warn');
+};
 
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ftInit):ftInit();
 window.addEventListener('firebaseReady',function(){if(ftS.dbFT)ftSyncFirestore();});
